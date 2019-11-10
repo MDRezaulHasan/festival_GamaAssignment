@@ -9,81 +9,199 @@ model festival
 
 /* Insert your model definition here */
 global{
-	int nb_Guests_init <- 20;
-	int nb_Stores_init <- 5;
-	int nb_InformationCenter_init <- 1;
-	float Guests_max_energy <- 1.0;
-	float Guests_max_transfer <- 0.1;
-	float Guests_energy_consum <- 0.05;
-	
-	init {
-		create Guests number: nb_Guests_init ;
-		create Stores number: nb_Stores_init ;
-		create InformationCenter number: nb_InformationCenter_init ;
+	init{
+	// Make sure we get consistent behaviour
+		seed<-10.0;		
+		create Guests number: 10
+		{
+			location <- {rnd(90),rnd(90)};
+		}
+		
+		bool drinkStores <- true;
+
+		create Stores number: 2
+		{
+			
+			if (drinkStores){
+				location <- {90, 10};
+				hasDrinks <- true;
+				hasFood <- false;
+				myColor <- #purple;				
+			}else{
+				location <- {10, 90};
+				hasDrinks <- false;
+				hasFood <- true;
+				myColor <- #green;
+				
+			}			
+			drinkStores <- not drinkStores;
+			
+		}
+		create Stores number: 2
+		{
+			
+			if (drinkStores){
+				location <- {10,10};
+				hasDrinks <- true;
+				hasFood <- false;
+				myColor <- #purple;				
+			}else{
+				location <- {90, 90};
+				hasDrinks <- false;
+				hasFood <- true;
+				myColor <- #green;
+				
+			}			
+			drinkStores <- not drinkStores;
+			
+		}
+		
+		
+		create InformationCenter number: 1
+		{
+			location <- {50,50};
+		}
 	}
 }
 
-species Guests{
-	float size <-1.0;
-	rgb color <- #orange;
-	float max_energy <- Guests_max_energy ;
-   	float max_transfer <- Guests_max_transfer ;
-   	float energy_consum <- Guests_energy_consum ;
-	field myCell <- one_of (field) ;
-	food foodCell <- one_of (food) ;
-	float energy <- rnd(max_energy) update: energy - energy_consum max: max_energy ;
-	init {
-		location <- myCell.location;
+species Guests skills: [moving] {
+	rgb myColor <- #red;
+	int hungerAndThirst <- 400;
+	
+	float totalDistance <- 0.0;
+	
+	Stores targetStores;
+	point targetPoint;
+	
+	int waterLevel <- rnd(hungerAndThirst);
+	int foodLevel <- rnd(hungerAndThirst);
+	
+	reflex beIdle when:  waterLevel > 0 and foodLevel > 0 and targetStores = nil and targetPoint = nil
+	{
+		myColor <- #red;
+		do wander;
+	}
+	
+	reflex movingTarget when: targetStores != nil
+	{
+		do goto target:targetStores;
+		ask Stores at_distance 2 {
+			if (self.hasDrinks) {
+				myself.waterLevel <- myself.hungerAndThirst;
+			}
+			if (self.hasFood) {
+				myself.foodLevel <- myself.hungerAndThirst;
+			}
+		}
+		
+		if (waterLevel > 0 and foodLevel > 0) {
+			targetStores <- nil;
+			targetPoint <- {rnd(100), rnd(100)};
+		}
+		
+		totalDistance <- totalDistance + location distance_to destination;
+	}
+	
+	reflex movingFordance when: waterLevel > 0 and foodLevel > 0 and targetStores = nil and targetPoint != nil
+	{
+		myColor <- #red;
+		do goto target:targetPoint; 
+	}
+	
+	reflex enterDanceMode when: waterLevel > 0 and foodLevel > 0 and targetStores = nil and targetPoint != nil
+	{
+		if (location distance_to (targetPoint) < 2)
+		{
+			targetPoint <- nil;
+		}	
+	}
+	
+	// Make sure the agent will do something when it gets thirsty
+	reflex goingToInformationcenter when: (waterLevel <= 0 or foodLevel <= 0) and (targetStores = nil)
+	{		
+		myColor <- #yellow;
+		
+		do goto target:{50,50};
+		ask InformationCenter at_distance 2 {
+			if(myself.waterLevel <= 0) {
+				int count <- length(self.waterStores);
+				int index <- rnd(count - 1);
+				
+				myself.targetStores <- self.waterStores[index];
+				myself.myColor <- #purple;
+			} else if (myself.foodLevel <= 0) {
+				int count <- length(self.foodStores);
+				int index <- rnd(count - 1);
+				
+				myself.targetStores <- self.foodStores[index];
+				myself.myColor <- #green;
+			}
+
+			write self.foodStores;
+			write self.waterStores;
+		}
+		
+		totalDistance <- totalDistance + location distance_to destination;
+	}
+	
+	// make more thirsty or hungry
+	reflex reserveEnergy when: waterLevel > 0 and foodLevel > 0
+	{
+		// More hunger
+		if (flip(0.5)) {
+			foodLevel <- foodLevel - 1;
+		// More thirst
+		} else {
+			waterLevel <- waterLevel - 1;
+		}
 	}
 		
-	reflex basic_move{
-		myCell <- one_of (myCell.neighbours) ;
-		location <- myCell.location ;
-	}
-	reflex eat when: foodCell.food_eat >= 0 { 
-	    float energy_transfer <- min([max_transfer, foodCell.food_eat]) ;
-	    foodCell.food_eat <- foodCell.food_eat - energy_transfer ;
-	    energy <- energy + energy_transfer ;
+	aspect default{
+		draw pyramid(3) at: {location.x, location.y, 0} color: myColor;
+    	draw sphere(1.5) at: {location.x, location.y, 3} color: myColor;
     }
-    aspect Guests_base {
-		draw circle(size) color: color ;
-	}
-} 
+}
+
 species Stores{
-	float size <-10.0;
-	rgb color <- #yellow;
-	aspect Stores_base {
-		draw triangle(size) color: color ;
-	}
+	rgb myColor <- #blue;
+	bool hasDrinks <- false;
+	bool hasFood <- false;
+	
+	aspect default{
+		draw cube(8) color: myColor ;
+    }
 	
 }
 species InformationCenter{
-	float size <-20.0;
-	rgb color <- #red;
-	aspect InformationCenter_base {
-		draw square(size) color: color ;
+	rgb myColor <- #yellow;
+	
+	list<Stores> waterStores;
+	list<Stores> foodStores;
+	
+	init {
+		ask Stores {
+			if (self.hasDrinks) {
+				myself.waterStores << self;
+			}
+			if (self.hasFood) {
+				myself.foodStores << self;
+			}
+		}
 	}
 	
-}
-grid field width: 50 height: 50 neighbors: 4 {
-	list<field> neighbours  <- (self neighbors_at 2); 
-}
-
-grid food width: 50 height: 50 neighbors: 4 {
-	 float max_food <- 1.0 ;
-	float food_prod <- rnd(0.01) ;
-	float food_eat <- rnd(1.0) max: max_food update: food_eat + food_prod ;
-	list<food> neighbours  <- (self neighbors_at 2); 
+	aspect default{
+		draw pyramid(15) at: location color: myColor ;
+    }
 }
 
-experiment prey_predator type: gui {
-	parameter "Initial number of preys: " var: nb_Guests_init min: 1 max: 1000 category: "Prey" ;
+
+experiment main type: gui {
 	output {
-		display main_display {
-			grid field lines: #black ;
-			species Guests aspect: Guests_base;
-			species Stores aspect: Stores_base;
-			species InformationCenter aspect: InformationCenter_base;
+		display map type: opengl 
+		{
+			species Guests;
+			species Stores;
+			species InformationCenter;
 		}
 	}
 }
